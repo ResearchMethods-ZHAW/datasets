@@ -1,0 +1,411 @@
+---
+title: "Create datasets in Rauman"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(terra)
+library(tidyverse)
+library(sf)
+library(tmap)
+library(lubridate)
+library(scales)
+library(viridis)
+```
+
+# RaumAn 1
+
+## Campus Grüental
+
+```{r}
+gruental_flaechen <- read_sf("rauman_source/gruental/shp/Flaechen.shp")
+gruental_punkte <- read_sf("rauman_source/gruental/shp/Punkte.shp")
+
+gruental_wiesen <- gruental_flaechen %>%
+  st_make_valid() %>%
+  filter(d_Schema == "Wiese") %>%
+  group_by(flaechen_typ = d_Schema) %>%
+  summarise()
+
+gruental_baeume <- gruental_punkte %>%
+  st_make_valid() %>%
+  filter(d_Schema == "Baum solitaer") %>%
+  transmute(baum_id = row_number())
+
+st_write(gruental_wiesen, "rauman/gruental.gpkg","wiesen", delete_layer = TRUE)
+st_write(gruental_baeume, "rauman/gruental.gpkg","baeume", delete_layer = TRUE)
+
+```
+
+
+## wasserverfuegbarkeit_boden.gpkg (depricated?)
+
+```{r}
+wasser <- rast("rauman_source/ch.bafu.wald-wasserverfuegbarkeit_boden/swb_mon_2018.tif")
+
+
+schweiz <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_LANDESGEBIET.shp") %>%
+  filter(NAME == "Schweiz")
+```
+
+```{r}
+
+samples_regular <- st_sample(schweiz,size = 1000,type = "regular") %>%
+  st_coordinates()
+
+offset <- 2000
+offsets <- runif(nrow(coords)*ncol(coords),-offset,offset)
+dim(offsets) <- dim(coords)
+coords_new <- coords + offsets
+coords_new <- st_as_sf(as.data.frame(coords_new), coords = c(1,2))
+
+st_crs(coords_new) <- st_crs(samples_regular)
+
+coords_new$wasserverfuegbarkeit <- terra::extract(wasser, as(coords_new, "SpatVector"), layer = "swb_mon_2018")[,2]
+
+
+coords_new <- coords_new %>%
+  filter(!is.na(wasserverfuegbarkeit))
+```
+
+
+```{r, eval = FALSE}
+st_write(coords_new,"rauman/wasserverfuegbarkeit_boden.gpkg",delete_dsn = TRUE)
+```
+
+
+
+
+
+## kantone.gpgk
+
+
+```{r}
+kantone <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_KANTONSGEBIET.shp") %>%
+  st_zm()
+
+kantone <- st_transform(kantone, 4326)
+
+kantone <- st_set_crs(kantone,NA_crs_)
+
+kantone <- kantone %>%
+  select(NAME, KANTONSNUM, SEE_FLAECH, KANTONSFLA, KT_TEIL, EINWOHNERZ)
+
+
+st_write(kantone,"rauman/kantone.gpkg",delete_dsn = TRUE)
+
+```
+
+## bezirke.gpkg
+
+```{r}
+
+bezirke <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_BEZIRKSGEBIET.shp") %>%
+  st_zm()
+
+kantone <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_KANTONSGEBIET.shp") %>%
+  st_zm()
+
+bezirke <- st_set_crs(bezirke,NA_crs_)
+
+st_write(bezirke,"rauman/bezirke.gpkg",delete_dsn = TRUE)
+```
+
+
+## gemeinden.gpkg
+
+
+```{r}
+
+gemeinden <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_HOHEITSGEBIET.shp") %>%
+  filter(OBJEKTART == "Gemeindegebiet") %>%
+  st_zm()
+
+gemeinden <- st_set_crs(gemeinden,NA_crs_)
+
+gemeinden <- gemeinden %>% 
+  select(NAME, KANTONSNUM, EINWOHNERZ,BFS_NUMMER,GEM_TEIL,GEM_FLAECH)
+
+st_write(gemeinden,"rauman/gemeinden.gpkg",delete_dsn = TRUE)
+```
+
+
+
+## schweiz.gpkg
+
+```{r}
+schweiz <- read_sf("rauman_source/swissboundaries3d_2021-07_2056_5728.shp/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_LANDESGEBIET.shp") %>%
+  st_zm() %>%
+  filter(NAME == "Schweiz") %>%
+  select(ICC, NAME) %>%
+  st_transform(2056)
+
+st_write(schweiz,"rauman/schweiz.gpkg",delete_dsn = TRUE)
+
+```
+
+
+
+
+## Bodeneignungskarte
+
+```{r}
+bodeneignung <- st_read("Bodeneignungskarte_Bodeneignungskarte_polygon.shp")
+```
+
+
+```{r}
+bodeneignung %>%
+  group_by(SKELETT) %>%
+  summarise() %>%
+  st_cast("POLYGON") %>%
+  ungroup() %>%
+  st_set_crs(NA_crs_) %>%
+  mutate(SKELETT = na_if(SKELETT, -9999)) %>%
+  st_write("rauman/bodeneignung_skelett.gpkg",delete_dsn = TRUE)
+```
+
+
+# Rauman 2
+
+## Luftqualität for Interpolation
+
+```{r}
+
+
+
+
+luft <- st_read("rauman_source/Luftqualitaet/Luftqualitaet_2015_NO2.shp")
+
+luft <- luft %>%
+  dplyr::select(value,unit = unit_name_) %>%
+  st_transform(2056)
+
+st_write(luft,"rauman/luftqualitaet.gpkg",delete_dsn = TRUE)
+```
+
+
+
+## Rotmilan for Density Estimation
+
+```{r}
+library(move)
+
+logi <- movebankLogin("rata","{@CA;Lk^")
+
+study672882373 <- getMovebankData(672882373, login = logi)
+
+study672882373 <- study672882373 %>%
+  as_tibble()
+
+write_csv(study672882373,"rauman_source/rotmilan.csv")
+```
+
+
+```{r}
+study672882373 <- read_csv("rauman_source/Rotmilan/rotmilan.csv")
+kantone <- read_sf("rauman/kantone.gpkg") %>% 
+  st_set_crs(4326) %>%
+  st_transform(2056) %>%
+  st_union()
+
+rotmilan_processed <- study672882373%>%
+  st_as_sf(coords = c("location_long","location_lat")) %>%
+  st_set_crs(4326) %>%
+  mutate(timestamp = as.POSIXct(timestamp)) %>%
+  dplyr::select(timestamp)
+
+rotmilan_processed2 <- st_transform(rotmilan_processed, 2056)
+
+
+rotmilan_processed3 <- rotmilan_processed2 %>%
+  mutate(in_switz = st_contains(kantone, ., sparse = FALSE)[1,])
+
+rle2 <- function(inp){
+  outp <- rle(inp)
+  rep(seq_along(outp$lengths), outp$lengths)
+}
+
+rotmilan_processed4 <- rotmilan_processed3 %>%
+  mutate(rle = rle2(in_switz)) %>%
+  filter(in_switz) %>%
+  group_by(rle) %>%
+  mutate(size = n())
+
+mygroup <- head(unique(rotmilan_processed4$rle[rotmilan_processed4$size == max(rotmilan_processed4$size)]),1)
+
+rotmilan_processed5 <- rotmilan_processed4 %>%
+  filter(rle == mygroup)
+
+
+ggplot(kantone) + geom_sf() + geom_sf(data = rotmilan_processed5, aes(colour = timestamp))
+
+ggplot(rotmilan_processed5) + geom_histogram(aes(timestamp))
+
+
+st_write(rotmilan_processed5, "rauman/rotmilan.gpkg",delete_dsn = TRUE)
+
+
+```
+
+
+# Rauman 3
+
+Data from: https://www.pxweb.bfs.admin.ch/pxweb/de/
+
+```{r}
+
+library(pxweb)
+library(httr)
+
+myquery <- jsonlite::fromJSON("myquery.json", simplifyVector=FALSE,smplifyDataFrame=FALSE)
+myurl <- "https://www.pxweb.bfs.admin.ch/api/v1/de/px-x-1703030000_101/px-x-1703030000_101.px"
+# px_data <- pxweb_get(url = myurl, query = "myquery.json")
+
+req <- POST(myurl, body=myquery, encode="json")
+res <- content(req, simplifyDataFrame = TRUE)
+
+myvals <- res[[1]]$value
+
+myvals_num <- map_dbl(myvals, function(x){
+  if(is.numeric(x)){x}else{
+    NA
+  }
+})
+
+
+ebene <- sapply(res[[1]]$dimension$`Kanton (-) / Bezirk (>>) / Gemeinde (......)`[[2]][[2]], paste)
+bfs_nr <- names(res[[1]]$dimension$`Kanton (-) / Bezirk (>>) / Gemeinde (......)`[[2]][[1]])
+resul <- matrix(myvals_num, ncol = length(ergebnisse),byrow = TRUE,dimnames = list(NULL, ergebnisse)) %>%
+  as_tibble() %>%
+  janitor::clean_names() %>%
+  mutate(name = ebene, BFS_NUMMER = as.integer(bfs_nr))
+
+
+resul <- resul %>%
+  mutate(
+    ebene = case_when(
+      startsWith(name, "- ")~"Kanton",
+      startsWith(name, ">>>")~"Bezirk",
+      startsWith(name, "......")~"Gemeinde",
+      TRUE~"Land"
+    )
+  )
+
+# zweitwohnung <- read_delim("rauman_source/zweitwohungsinitiative/px-x-1703030000_101_20211129-065402.csv", ";", locale = locale(encoding = "ISO-8859-15"))
+
+
+gemeindegebiet <- read_sf("/home/nils/Downloads/swissboundaries3d_2021-07_2056_5728.gdb(1)/swissBOUNDARIES3D_1_3_LV95_LN02.gdb/", "TLM_HOHEITSGEBIET") %>% 
+  st_zm()
+
+kantone <- read_sf("/home/nils/Downloads/swissboundaries3d_2021-07_2056_5728.gdb(1)/swissBOUNDARIES3D_1_3_LV95_LN02.gdb/", "TLM_KANTONSGEBIET") %>% 
+  st_drop_geometry() %>%
+  select(KANTONSNUMMER, KANTONSNAME = NAME)
+
+bezirke <- read_sf("/home/nils/Downloads/swissboundaries3d_2021-07_2056_5728.gdb(1)/swissBOUNDARIES3D_1_3_LV95_LN02.gdb/", "TLM_BEZIRKSGEBIET") %>% 
+  st_drop_geometry() %>%
+  select(BEZIRKSNUMMER, BEZIRKSNAME = NAME)
+
+gemeindegebiet <- left_join(gemeindegebiet, kantone, by = "KANTONSNUMMER")
+gemeindegebiet <- left_join(gemeindegebiet, bezirke, by = "BEZIRKSNUMMER")
+
+
+gemeindegebiet <- gemeindegebiet %>%
+  select(GEMEINDENAME = NAME, BFS_NUMMER, BEZIRKSNUMMER, BEZIRKSNAME, KANTONSNUMMER, KANTONSNAME) %>%
+  group_by(GEMEINDENAME, BFS_NUMMER, BEZIRKSNUMMER, BEZIRKSNAME, KANTONSNUMMER, KANTONSNAME) %>%
+  summarise() %>%
+  left_join(filter(resul, ebene == "Gemeinde"), by = c("BFS_NUMMER"))
+
+
+my_summary <- function(data){
+  data %>%
+    summarise(
+      stimmberechtigte = sum(stimmberechtigte, na.rm = TRUE),
+      abgegebene_stimmen = sum(abgegebene_stimmen, na.rm = TRUE),
+      beteiligung_in_percent = abgegebene_stimmen/stimmberechtigte,
+      gultige_stimmzettel = sum(gultige_stimmzettel, na.rm = TRUE),
+      ja = sum(ja, na.rm = TRUE),
+      nein = sum(nein, na.rm = TRUE),
+      ja_in_percent = ja/gultige_stimmzettel
+  )
+}
+
+zweitwohnung_kanton <- gemeindegebiet %>%
+  group_by(KANTONSNUMMER, KANTONSNAME) %>%
+  my_summary() %>%
+  filter(!is.na(KANTONSNUMMER))
+
+zweitwohnung_bezirk <- gemeindegebiet %>%
+  group_by(BEZIRKSNUMMER, BEZIRKSNAME) %>%
+  my_summary() %>%
+  filter(!is.na(BEZIRKSNUMMER))
+
+zweitwohnung_gemeinde <- gemeindegebiet %>%
+  group_by(GEMEINDENAME, BFS_NUMMER) %>%
+  my_summary() 
+
+st_write(zweitwohnung_kanton, "rauman/zweitwohnungsinitiative.gpkg","kanton", delete_layer = TRUE)
+st_write(zweitwohnung_bezirk, "rauman/zweitwohnungsinitiative.gpkg", "bezirk", delete_layer = TRUE)
+st_write(zweitwohnung_gemeinde, "rauman/zweitwohnungsinitiative.gpkg", "gemeinde", delete_layer = TRUE)
+
+```
+
+
+
+
+```{r}
+
+
+zweitwohnung <- read_delim("23_RaumAn3/data_raw/px-x-1703030000_101.csv",
+           ",",
+           locale = locale(encoding = "Windows-1252"),skip = 2) %>%
+  janitor::clean_names()
+
+zweitwohnung$datum_und_vorlage <- NULL
+
+zweitwohnung <- zweitwohnung %>%
+  mutate_at(-1,as.numeric) %>%
+  filter(kanton_bezirk_gemeinde != "Schweiz") %>%
+  mutate(
+    kanton = str_match(kanton_bezirk_gemeinde,"-\\s(.+)")[,2],
+    bezirk = str_match(kanton_bezirk_gemeinde,">>\\s(.+)")[,2],
+    gemeinde = str_match(kanton_bezirk_gemeinde,"\\.+(.+)")[,2]
+    ) %>%
+  fill(kanton,bezirk)
+
+
+# json from https://www.pxweb.bfs.admin.ch/pxweb/de/px-x-1703030000_101/px-x-1703030000_101/px-x-1703030000_101.px
+df <- jsonlite::read_json("https://www.pxweb.bfs.admin.ch/api/v1/de/px-x-1703030000_101/px-x-1703030000_101.px")
+
+codes <- map2_dfr(df$variables[[1]][3][[1]],df$variables[[1]][4][[1]],~tibble(code = .x[1],name = .y[1]))
+
+
+zweitwohnung_gemeinde <- full_join(zweitwohnung,codes, by = c("kanton_bezirk_gemeinde" = "name")) %>%
+  filter(!is.na(gemeinde))
+
+zweitwohnung_kanton <- full_join(zweitwohnung,codes, by = c("kanton_bezirk_gemeinde" = "name")) %>%
+  filter(!is.na(kanton))
+```
+
+
+```{r}
+gemeinden <- read_sf("rauman/gemeinden.gpkg")
+
+gemeinden <- gemeinden %>%
+  mutate(gemeindenummer = str_sub(SHN,-4,-1)) %>%
+  dplyr::select(NAME,SHN,gemeindenummer)
+
+gemeinden_zweitwohnung<- left_join(gemeinden,zweitwohnung_gemeinde, c("gemeindenummer" = "code"))
+
+
+st_write(gemeinden_zweitwohnung,"rauman/zweitwohnung_gemeinden.gpkg")
+```
+
+
+
+
+

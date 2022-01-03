@@ -1,0 +1,52 @@
+---
+title: "Create datasets in Propro"
+output: github_document
+---
+
+
+```{r}
+library(dplyr)
+library(readr)
+```
+
+## sensors_combined.csv
+
+
+```{r, message=FALSE}
+
+
+sensor1 <- read_delim("prepro_source/sensor1.csv",";")
+sensor2 <- read_delim("prepro_source/sensor2.csv",";")
+sensor3 <- read_delim("prepro_source/sensor3.csv",";")
+sensor1_2 <- full_join(sensor1, sensor2, "Datetime")
+
+sensor_all <- full_join(sensor1_2, sensor3, by = "Datetime")
+
+names(sensor_all) <- c("Datetime","sensor1","sensor2","sensor3")
+
+write_csv(sensor_all, "prepro/sensors_combined.csv")
+
+file.copy("prepro_source/sensor1.csv", "prepro/sensor1.csv")
+file.copy("prepro_source/sensor2.csv", "prepro/sensor2.csv")
+file.copy("prepro_source/sensor3.csv", "prepro/sensor3.csv")
+file.copy("prepro_source/sensor_fail.csv", "prepro/sensor_fail.csv")
+
+```
+
+
+# weather.csv
+
+```{r}
+
+weather <- read_table("prepro_source/order_52252_data.txt")
+
+stn <- unique(weather$stn)
+stn <- stn[stn != "stn"]
+
+weather <- filter(weather, time < 2002010100, stn %in% stn[1:5])
+
+write_csv(weather, "prepro/weather.csv")
+file.copy("prepro_source/order_52252_legend.csv", "prepro/metadata.csv")
+```
+
+

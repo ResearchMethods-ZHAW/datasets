@@ -1,0 +1,90 @@
+---
+title: "Create datasets in Propro"
+output: github_document
+---
+
+```{r setup}
+library(readr)
+library(googlesheets4)
+library(dplyr)
+library(lubridate)
+library(tidyr)
+```
+
+
+## initiative_masseneinwanderung_kanton.csv
+
+
+
+```{r}
+googlesheets4::gs4_deauth()
+sheeturl <- "https://docs.google.com/spreadsheets/d/1RxDXRUSoyn-k-hiHfvgZ2Q35mWv4LHB6C7B8l_v5ll4/edit#gid=0"
+
+tagi_data_kantone <- googlesheets4::read_sheet(sheeturl, "Kantone")
+tagi_data_gemeinden <- googlesheets4::read_sheet(sheeturl, "Gemeinden")
+tagi_data_korr <- googlesheets4::read_sheet(sheeturl, "Korrelationskoeffizienten")
+
+tagi_data_kantone <- janitor::clean_names(tagi_data_kantone)
+tagi_data_gemeinden <- janitor::clean_names(tagi_data_gemeinden)
+tagi_data_korr <- janitor::clean_names(tagi_data_korr)
+
+write_csv(tagi_data_kantone, "infovis/tagi_data_kantone.csv")
+write_csv(tagi_data_gemeinden, "infovis/tagi_data_gemeinden.csv")
+write_csv(tagi_data_korr, "infovis/tagi_data_korr.csv")
+
+```
+
+
+## temperature_SHA_ZER.csv
+
+```{r}
+order_52252 <- read_table("prepro_source/order_52252_data.txt", col_types = cols(
+  col_factor(),
+  col_datetime(format = "%Y%m%d%H"),
+  col_double()
+))
+
+
+```
+
+
+```{r}
+temp_SHA_ZER <- order_52252 %>%
+  filter(stn %in% c("SHA", "ZER")) %>%
+  filter(year(time) <= 2001) %>%
+  rename(temp = tre200h0)
+
+
+temp_SHA_ZER <- pivot_wider(temp_SHA_ZER, names_from = stn, values_from = temp)
+
+write_csv(temp_SHA_ZER, "infovis/temperature_SHA_ZER.csv")
+
+```
+
+
+
+```{r}
+
+temp2005 <- order_52252 %>%
+  filter(year(time) == 2005) %>%
+  filter(stn %in% c("BUS", "ALT", "LUG", "GVE", "INT", "LUZ", "OTL", "PIO", "STG"))
+
+
+temp2005 <- pivot_wider(temp2005, names_from = stn, values_from = tre200h0)
+
+
+write_csv(temp2005, "infovis/temperature_2005.csv")
+
+
+order_legend <- read_delim("prepro_source/order_52252_legend.csv", ";")
+
+order_legend_cleaned <- select(order_legend, stn, Name, Meereshoehe, Koordinaten) %>%
+  separate(Koordinaten, c("x","y"),sep = "/",convert = TRUE)
+
+
+write_csv(order_legend_cleaned, "infovis/temperature_2005_metadata.csv")
+
+
+
+```
+
